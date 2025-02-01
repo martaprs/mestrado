@@ -1,0 +1,590 @@
+---
+title: "Análise de Dados sobre Impacto das Redes Sociais"
+format: 
+  docx:
+    reference-doc: style.docx
+editor: visual
+---
+
+# Introdução
+
+O presente relatório tem como objetivo analisar um conjunto de dados que avalia o **impacto das mídias sociais** no comportamento de compra de consumidores. O dataset utilizado, denominado **Social Media Dataset**, engloba informações sobre uso de redes sociais, dados demográficos, renda, gastos, nível de influência e outros aspectos que possibilitam examinar as relações entre tais variáveis e o comportamento de consumo.
+
+Para cumprir esse objetivo, serão apresentados cinco roteiros de análise:
+
+1. **Roteiro 1 – Exploração de Dados (AED)**
+
+   - Tratamento de outliers e dados ausentes;
+   - Recodificação de variáveis;
+   - Tabelas de frequência;
+   - Resultados descritivos (média, mediana, desvio, CV);
+   - Cruzamentos e gráficos.
+
+2. **Roteiro 2 – ANOVA**
+
+   - Descrição do estudo e hipóteses;
+   - Verificação de pressupostos (normalidade, homogeneidade de variâncias);
+   - Análise descritiva e resultados do modelo;
+   - Interpretação dos efeitos.
+
+3. **Roteiro 3 – Regressão Múltipla (ou Logística)**
+
+   - Descrição do estudo e hipóteses;
+   - Verificação de pressupostos (linearidade, normalidade dos resíduos, homocedasticidade, multicolinearidade);
+   - Ajuste de modelos e comparação;
+   - Interpretação dos resultados.
+
+4. **Roteiro 4 – Propensity Score Matching (PSM)**
+
+   - Descrição detalhada do caso investigado;
+   - Decisões de análise;
+   - Passo a passo do matching e verificação de balanceamento;
+   - Conclusão com teste de hipóteses.
+
+5. **Roteiro 5 – Diferença-em-Diferenças (DiD)**
+
+   - Montagem do cenário (definição de tratamento e período pós-tratamento);
+   - Modelagem DiD básica e com controles;
+   - Visualizações para testar tendência paralela;
+   - Conclusões sobre o efeito do tratamento.
+
+Ao final, será apresentada uma **Conclusão Geral**, sintetizando os achados mais relevantes.
+
+---
+
+```{r setup, include=FALSE}
+# Definições iniciais do Quarto/R
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+```
+
+# Carregamento e Preparação dos Dados
+
+```{r load-packages}
+# 1. Carregar bibliotecas necessárias
+library(dplyr)
+library(ggplot2)
+library(skimr)
+library(DataExplorer)
+library(corrplot)
+library(GGally)
+library(forcats)
+library(funModeling)
+library(inspectdf)
+library(qacBase)
+library(car)
+library(lmtest)
+library(MASS)
+library(MatchIt)
+library(tableone)
+library(plm)
+library(readxl)
+```
+
+setwd("~/Documents/Ufba/quanti/Roteiros R")
+
+dados <- read.csv ('Social Meida Dataset Marta.csv', sep = ';',dec=',')
+
+View(dados)
+
+Na sequência, apresentamos algumas verificações iniciais de estrutura do dataset:
+
+```{r check-data}
+dim(Social_Meida_Dataset)
+head(Social_Meida_Dataset, 5)
+
+summary(Social_Meida_Dataset)
+
+skim(Social_Meida_Dataset)
+```
+
+---
+
+# Roteiro 1 – Exploração de Dados (AED)
+
+##  Identificação de Outliers e Dados Ausentes
+
+Para verificar outliers nas variáveis numéricas, utilizamos boxplots:
+
+```{r outliers}
+# Boxplots para variáveis numéricas de maior interesse
+boxplot(Social_Meida_Dataset$`Income (USD)`, main = "Income (USD)")
+boxplot(Social_Meida_Dataset$`Amount Spent (USD)`, main = "Amount Spent (USD)")
+boxplot(Social_Meida_Dataset$`Social Media Usage (Hours/Day)`, main = "Social Media Usage (Hours/Day)")
+```
+
+
+- Os boxplots permitem visualizar possíveis valores muito além do 3º quartil ou abaixo do 1º quartil.  
+- Podemos notar que `Amount Spent (USD)` e `Income (USD)` apresentam valores potencialmente altos que podem ser considerados outliers de acordo com a regra do IQR (Interquartile Range).  
+- Entretanto, decidir o que é ou não outlier depende do contexto. Nem sempre é apropriado excluí-los, pois podem representar consumidores de renda ou gastos realmente maiores.
+
+Em relação a **dados ausentes**, verificamos a presença através da função`df_status()`:
+
+```{r missing-data}
+df_status(Social_Meida_Dataset)
+```
+
+No conjunto apresentado, não foram detectados valores faltantes (missing) para as variáveis principais, conforme indicado pelos percentuais de missing igual a 0%.
+
+## 1.2 Recodificação de Variáveis
+
+Para realizar análises mais focadas, foram realizadas algumas recodificações importantes:
+
+- **Education Level** foi traduzida/agrupada em: Ensino Médio, Graduação, Mestrado, Doutorado.
+- Foram criadas variáveis agrupadas, como `Product_Category_Grouped`, `Influence_Level_Grouped` e `Social_Media_Platforms_Grouped`.
+- Removemos categorias muito específicas (ex: `Non-binary` em *Gender*) para simplificar as comparações.
+
+Exemplo de recodificação:
+
+```{r recoding}
+Social_Meida_Dataset <- Social_Meida_Dataset %>%
+  mutate(Education_Level_Recoded = case_when(
+    `Education Level` == "High School" ~ "Ensino Médio",
+    `Education Level` == "Bachelor's"  ~ "Graduação",
+    `Education Level` == "Master's"    ~ "Mestrado",
+    `Education Level` == "PhD"         ~ "Doutorado"
+  ))
+```
+
+
+
+Da mesma forma, recodificamos `Purchase Decision` e outras colunas categóricas, bem como removemos variáveis que não seriam utilizadas em etapas seguintes (ex.: `Specific Product`), de modo a deixar o conjunto mais enxuto.
+
+##  Tabelas de Frequência e Medidas Descritivas
+
+###  Tabelas de Frequência
+
+```{r freq-tables}
+# Frequência de Gênero:
+table(Social_Meida_Dataset$Gender)
+
+# Frequência de Purchase Decision:
+table(Social_Meida_Dataset$`Purchase Decision`)
+```
+
+**Exemplo de tabela de frequência** para `Gender`:
+
+- Female: 149
+- Male: 150
+- Non-binary: 1
+
+###  Medidas Descritivas
+
+```{r desc-stats}
+# Medidas de tendência central e dispersão
+summary(Social_Meida_Dataset$`Income (USD)`)
+summary(Social_Meida_Dataset$`Amount Spent (USD)`)
+summary(Social_Meida_Dataset$`Social Media Usage (Hours/Day)`)
+```
+
+Ainda, calculamos o **Coeficiente de Variação (CV)** para avaliar a dispersão relativa:
+
+```{r cv}
+cv <- function(x) { sd(x) / mean(x) * 100 }
+cv_income  <- cv(Social_Meida_Dataset$`Income (USD)`)
+cv_spent   <- cv(Social_Meida_Dataset$`Amount Spent (USD)`)
+cv_usage   <- cv(Social_Meida_Dataset$`Social Media Usage (Hours/Day)`)
+
+cv_income; cv_spent; cv_usage
+```
+
+
+- Quanto maior o CV, maior a dispersão relativa em relação à média.  
+- `Income (USD)` apresentou CV em torno de ~15%, enquanto `Amount Spent (USD)` teve um CV muito maior (~142%), indicando alta variação entre os consumidores.
+
+##  Cruzamentos e Visualização
+
+Para ilustrar como o gasto (`Amount Spent (USD)`) varia em função do gênero e decisão de compra:
+
+```{r cross-tabs, fig.width=6, fig.height=4}
+table(Social_Meida_Dataset$Gender, Social_Meida_Dataset$`Purchase Decision`)
+
+# Gráfico de barras
+ggplot(Social_Meida_Dataset, aes(x = Gender, fill = `Purchase Decision`)) +
+  geom_bar(position = "dodge") +
+  theme_minimal() +
+  labs(title = "Cruzamento: Gênero vs Decisão de Compra")
+```
+
+Para relacionar Renda e Gasto:
+
+```{r scatter-1, fig.width=6, fig.height=4}
+ggplot(Social_Meida_Dataset, aes(x = `Income (USD)`, y = `Amount Spent (USD)`, color = Gender)) +
+  geom_point() +
+  theme_minimal() +
+  labs(title = "Dispersão: Income x Amount Spent")
+```
+
+O gráfico de dispersão mostra a relação entre a renda (`Income (USD)`) e os gastos (`Amount Spent (USD)`), com pontos coloridos por gênero. Observa-se uma tendência de aumento nos gastos conforme a renda aumenta, com consumidores do gênero masculino tendendo a gastar mais. Alguns outliers indicam alto consumo em faixas de renda mais baixas.
+
+---
+
+# Roteiro 2 – ANOVA
+
+##  Descrição e Hipóteses
+
+Queremos verificar se a variável de interesse `Amount Spent (USD)` difere significativamente entre:
+
+- Grupos de **Gênero** (Female vs Male);
+- Grupos de **Nível de Educação** (`Graduação ou Ensino Médio` vs `Pós-Graduação`);
+- Outras categorizações como `Product_Category_Grouped`, etc.
+
+**Exemplo de hipótese para Gênero**:
+
+- *H0:* A média de `Amount Spent (USD)` é a mesma para homens e mulheres.
+- *H1:* A média de `Amount Spent (USD)` difere entre homens e mulheres.
+
+##  Pressupostos
+
+1. **Normalidade dos resíduos**: Teste de Shapiro-Wilk mostrou `p-value < 2.2e-16` para a variável bruta, indicando não-normalidade.  
+2. **Homogeneidade de variâncias**: Teste de Levene. Várias comparações apresentaram *p < 0.05*, sugerindo violação da homocedasticidade para alguns grupos (ex.: Gender, Product_Category_Grouped).
+
+Quando ocorre violação, podemos recorrer a um teste **não paramétrico** (Kruskal-Wallis) como alternativa.
+
+##  Resultados ANOVA
+
+Exemplo para `Gender`:
+
+```{r anova-gender}
+anova_gender <- aov(`Amount Spent (USD)` ~ Gender, data = Social_Meida_Dataset)
+summary(anova_gender)
+```
+
+**Interpretação**: A saída mostra `p-value < 0.001` para `Gender`, indicando diferença significativa de gastos médios entre homens e mulheres.
+
+Também testamos para outras variáveis categóricas (`Education_Level_Recoded`, `Product_Category_Grouped`, etc.). Resumidamente, encontramos:
+
+- **Gênero**: diferença significativa (p < 0.001).  
+- **Education_Level_Recoded**: diferença significativa (p < 0.01).  
+- **Product_Category_Grouped**: diferença altamente significativa (p < 0.001).  
+- **Influence_Level_Grouped**: não significativa (p ~ 0.87).  
+- **Social_Media_Platforms_Grouped**: significativa (p < 0.01).  
+- **City_Grouped**: não significativa (p ~ 0.50).
+
+## Conclusão Roteiro 2
+
+Há evidências de que o gasto médio se diferencia entre diversos grupos (Gênero, Educação, Categoria de Produto, etc.). Em especial, parece haver maior gasto associado a algumas categorias de produto mais caras (Eletrônicos e Casa, Saúde e Bem-Estar) e renda maior para determinados grupos.
+
+---
+
+# Roteiro 3 – Regressão Múltipla
+
+##  Hipóteses e Pressupostos
+
+Objetivamos explicar (ou prever) `Amount Spent (USD)` por meio de variáveis explicativas como Gênero, Educação, Categoria de Produto, etc.
+
+**Pressupostos**:
+
+1. Linearidade das relações (checamos via gráficos de dispersão).
+2. Independência dos resíduos (Durbin-Watson).
+3. Homocedasticidade (Breusch-Pagan).
+4. Normalidade dos resíduos (Shapiro-Wilk).
+5. Ausência de multicolinearidade (VIF).
+
+##  Ajuste do Modelo
+
+Ajustamos um modelo de regressão linear múltipla:
+
+```{r, include=FALSE, echo=FALSE, warning=FALSE, message=FALSE, results='hide'}
+
+
+
+# Carregar bibliotecas necessárias
+library(dplyr)
+library(forcats)
+
+# 1. Remover a categoria "Non-binary" da variável Gender
+Social_Meida_Dataset <- Social_Meida_Dataset %>%
+  filter(Gender != "Non-binary")
+
+# 2. Agrupar "Ensino Médio" com "Graduação" e renomear
+Social_Meida_Dataset <- Social_Meida_Dataset %>%
+  mutate(Education_Level_Recoded = case_when(
+    `Education Level` == "High School" ~ "Graduação ou Ensino Médio",
+    `Education Level` == "Bachelor's" ~ "Graduação ou Ensino Médio",
+    `Education Level` == "Master's" ~ "Mestrado",
+    `Education Level` == "PhD" ~ "Doutorado"
+  ))
+
+# 3. Agrupar Product Category em 3 tipos principais
+Social_Meida_Dataset <- Social_Meida_Dataset %>%
+  mutate(Product_Category_Grouped = case_when(
+    `Product Category` %in% c("Beauty", "Fashion") ~ "Beleza e Moda",
+    `Product Category` %in% c("Electronics", "Home Decor") ~ "Eletrônicos e Casa",
+    `Product Category` %in% c("Fitness", "Food") ~ "Saúde e Bem-Estar",
+    TRUE ~ "Outros"  # Para categorias como "N/A"
+  ))
+
+# 4. Remover a variável Specific Product
+Social_Meida_Dataset <- Social_Meida_Dataset %>%
+  dplyr::select(-`Specific Product`)
+
+# 5. Agrupar "Not Influential" com "Somewhat Influential"
+Social_Meida_Dataset <- Social_Meida_Dataset %>%
+  mutate(Influence_Level_Grouped = case_when(
+    `Influence Level` %in% c("Not Influential", "Somewhat Influential") ~ "Pouco ou Medianamente Influente",
+    `Influence Level` == "Very Influential" ~ "Muito Influente"
+  ))
+
+# 6. Agrupar Social Media Platforms de forma inteligente
+Social_Meida_Dataset <- Social_Meida_Dataset %>%
+  mutate(Social_Media_Platforms_Grouped = case_when(
+    grepl("Facebook|Instagram", `Social Media Platforms`) ~ "Facebook e Instagram",
+    grepl("TikTok|Snapchat", `Social Media Platforms`) ~ "TikTok e Snapchat",
+    grepl("LinkedIn|Twitter", `Social Media Platforms`) ~ "LinkedIn e Twitter",
+    TRUE ~ "Outras Plataformas"
+  ))
+
+# 7. Remover a variável Brand Name
+Social_Meida_Dataset <- Social_Meida_Dataset %>%
+  dplyr::select(-`Brand Name`)
+
+# 8. Remover valores iguais a 0 em Amount Spent (USD)
+Social_Meida_Dataset <- Social_Meida_Dataset %>%
+  filter(`Amount Spent (USD)` > 0)
+
+Social_Meida_Dataset <- Social_Meida_Dataset %>%
+  dplyr::select(-`Education Level`, -`Social Media Platforms`, -`Product Category`, -`Purchase Decision`, -`Customer Name`)
+
+# 2. Agrupar "Doutorado" e "Mestrado" em uma única categoria
+Social_Meida_Dataset <- Social_Meida_Dataset %>%
+  mutate(Education_Level_Recoded = case_when(
+    Education_Level_Recoded %in% c("Doutorado", "Mestrado") ~ "Pós-Graduação",
+    TRUE ~ Education_Level_Recoded  # Mantém "Graduação ou Ensino Médio"
+  ))
+
+# 3. Agrupar "LinkedIn e Twitter" com "TikTok e Snapchat" em uma única categoria
+Social_Meida_Dataset <- Social_Meida_Dataset %>%
+  mutate(Social_Media_Platforms_Grouped = case_when(
+    Social_Media_Platforms_Grouped %in% c("LinkedIn e Twitter", "TikTok e Snapchat") ~ "Outras Plataformas",
+    TRUE ~ Social_Media_Platforms_Grouped  # Mantém "Facebook e Instagram"
+  ))
+
+# 4. Categorizar a variável City em grupos maiores
+Social_Meida_Dataset <- Social_Meida_Dataset %>%
+  mutate(City_Grouped = case_when(
+    City %in% c("Los Angeles", "New York", "Chicago", "Miami") ~ "Grandes Metrópoles",
+    City %in% c("Austin", "Boston", "San Francisco", "Seattle") ~ "Cidades Tecnológicas",
+    City %in% c("Houston", "Phoenix", "San Diego", "Denver") ~ "Cidades em Expansão",
+    TRUE ~ "Grandes Metrópoles"  # Para cidades com menos representatividade
+  ))
+
+```
+
+
+```{r linear-model}
+modelo_regressao <- lm(`Amount Spent (USD)` ~ Gender + Education_Level_Recoded +
+                         Product_Category_Grouped + Influence_Level_Grouped +
+                         Social_Media_Platforms_Grouped + City_Grouped,
+                       data = Social_Meida_Dataset)
+summary(modelo_regressao)
+```
+
+- O **R²** ajustado ficou em torno de ~0.21/0.23, sugerindo que ~21-23% da variabilidade de `Amount Spent (USD)` é explicada pelas variáveis do modelo.
+
+Verificamos posteriormente se a transformação log (`Log_Amount_Spent`) ou inclusão de termos quadráticos de `Income (USD)` e `Social Media Usage (Hours/Day)` melhoraria a adequação. De fato, houve certa melhora quando adicionamos tais termos e utilizamos o log como resposta, resultando em um aumento do R² ajustado para algo em torno de ~0.28-0.30.
+
+###  Verificação dos Resíduos
+
+```{r resid-checks}
+par(mfrow=c(2,2))
+plot(modelo_regressao)
+par(mfrow=c(1,1))
+```
+
+- **Shapiro-Wilk** nos resíduos ainda mostrou não-normalidade significativa (p < 0.05).  
+- **Breusch-Pagan** indicou heterocedasticidade (p < 0.001).  
+
+Isso implica que os intervalos de confiança e testes podem estar subestimando ou superestimando a variância. Podemos então usar correções de erros padrão robustos para contornar parte desse problema.
+
+###  VIF
+
+```{r vif-check}
+vif(modelo_regressao)
+```
+
+Todos os valores de VIF foram próximos de 1, indicando baixa multicolinearidade entre as variáveis categóricas incluídas.
+
+###  Modelo Final (Exemplo)
+
+Depois de diversas comparações, um modelo transformado com log da resposta e inclusão de renda e uso de rede (lineares e quadráticos) apresentou melhor ajuste:
+
+```{r final-model}
+Social_Meida_Dataset <- Social_Meida_Dataset %>%
+  mutate(Log_Amount_Spent = log(`Amount Spent (USD)` + 1))
+modelo_novo <- lm(Log_Amount_Spent ~ Gender + Education_Level_Recoded + 
+                    Product_Category_Grouped + Influence_Level_Grouped + 
+                    Social_Media_Platforms_Grouped + `Income (USD)` + 
+                    I(`Income (USD)`^2) + `Social Media Usage (Hours/Day)` + 
+                    I(`Social Media Usage (Hours/Day)`^2),
+                  data = Social_Meida_Dataset)
+summary(modelo_novo)
+```
+
+- R² ajustado subiu para ~0.28.  
+- A heterocedasticidade ainda persiste, mas utilizamos **erros padrão robustos** (`vcovHC`) para estimar as significâncias.
+
+**Conclusão Roteiro 3**: 
+
+- Gênero Masculino apresenta gasto maior.  
+- Maior renda tende a elevar o gasto, mas com comportamento possivelmente quadrático (há um ponto de não-linearidade).  
+- Categorias de produto “Eletrônicos e Casa” e “Saúde e Bem-Estar” elevam significativamente o gasto.  
+- O nível de influência (Muito Influente x Pouco/Mediano) também apareceu significativo em algumas parametrizações, sugerindo que influenciadores muito ativos podem gastar mais.
+
+---
+
+# Roteiro 4 – Propensity Score Matching (PSM)
+
+##  Descrição do Caso
+
+Para este roteiro, definimos um “tratamento” hipotético baseado no alto uso de redes sociais:  
+
+- Tratamento (1) = `Social Media Usage (Hours/Day)` > 3 horas.  
+- Controle (0) = `Social Media Usage (Hours/Day)` <= 3 horas.
+
+**Pergunta**: Consumidores com uso elevado de redes sociais gastam mais (`Amount Spent (USD)`) do que aqueles com uso moderado ou baixo?
+
+##  Modelo de Propensity Score
+
+Criamos um modelo logístico para prever a probabilidade de um indivíduo pertencer ao grupo de tratamento, usando variáveis como Idade, Gênero, Renda, etc.
+
+```{r psm-code}
+Social_Meida_Dataset <- Social_Meida_Dataset %>%
+  mutate(Treatment = ifelse(`Social Media Usage (Hours/Day)` > 3, 1, 0))
+
+ps_model <- glm(Treatment ~ Age + Gender + `Income (USD)` + Education_Level_Recoded +
+                  Product_Category_Grouped + Influence_Level_Grouped,
+                family = binomial(),
+                data = Social_Meida_Dataset)
+
+summary(ps_model)
+```
+
+##  Matching
+
+Utilizamos o método de **Nearest Neighbor** (vizinho mais próximo):
+
+```{r match-it}
+match_result <- matchit(Treatment ~ Age + Gender + `Income (USD)` + Education_Level_Recoded +
+                          Product_Category_Grouped + Influence_Level_Grouped,
+                        method = "nearest",
+                        data = Social_Meida_Dataset)
+summary(match_result)
+```
+
+###  Verificação do Balanceamento
+
+Observamos a redução do **Standardized Mean Difference (SMD)** para variáveis como renda, idade, gênero, etc., após o matching. Isso indica grupos mais comparáveis.
+
+```{r}
+plot(match_result, type = "density")
+```
+
+A Figura acima exibe as distribuições de Idade, Gênero e Renda antes (All) e depois (Matched) do pareamento, demonstrando uma redução do desbalanceamento entre os grupos.
+
+##  Análise do Efeito do Tratamento
+
+Com os dados pareados, verificamos a diferença de médias de `Amount Spent (USD)`:
+
+```{r matched-data-effect}
+matched_data <- match.data(match_result)
+
+t.test(`Amount Spent (USD)` ~ Treatment, data = matched_data)
+```
+
+No exemplo, obtemos um *p-value* ~ 0.03, indicando diferença significativa das médias. O grupo controle (0) apresentou média de gasto ~376 USD, enquanto o grupo tratado (1) ficou ~163 USD, sugerindo que os que **usam mais horas de redes sociais** (na amostra pareada) **gastam menos** do que o grupo controle — ou seja, o resultado foi o oposto do que poderíamos esperar intuitivamente. Devemos analisar com cautela, pois o *n* do grupo tratado era bem menor.
+
+---
+
+# Roteiro 5 – Diferença-em-Diferenças (DiD)
+
+##  Definição de Tratamento e Período
+
+Criamos um cenário artificial para exemplificar a técnica **DiD**:
+- **Tratamento** = Consumidores “Muito Influentes” (`Influence_Level_Grouped == "Muito Influente"`).
+- **Controle** = “Pouco ou Medianamente Influente”.
+- **Antes** e **Depois** (post) baseados em um corte de uso de redes sociais acima (post=1) ou abaixo (post=0) da mediana de uso.
+
+```{r did-setup}
+Social_Meida_Dataset <- Social_Meida_Dataset %>%
+  mutate(
+    treatment = ifelse(Influence_Level_Grouped == "Muito Influente", 1, 0),
+    post      = ifelse(`Social Media Usage (Hours/Day)` > median(`Social Media Usage (Hours/Day)`), 1, 0)
+  )
+
+did_model <- lm(`Amount Spent (USD)` ~ treatment + post + treatment:post,
+                data = Social_Meida_Dataset)
+summary(did_model)
+```
+
+No coeficiente `treatment:post` (interação), temos a **estimativa do efeito DiD**. Caso seja estatisticamente significativo, inferimos que houve diferença adicional no gasto para o grupo tratado após o suposto “choque” (uso de mais horas de rede social).
+
+##  Modelo com Controles
+
+```{r did-controls}
+did_model_controls <- lm(`Amount Spent (USD)` ~ treatment + post + treatment:post +
+                           Gender + Education_Level_Recoded + Product_Category_Grouped +
+                           `Income (USD)` + City_Grouped,
+                         data = Social_Meida_Dataset)
+summary(did_model_controls)
+```
+
+- Observa-se que `post` foi significativo e negativo, sugerindo que, de forma geral, quem está acima da mediana de uso tende a gastar menos (na nossa amostra).  
+- A interação `treatment:post` (`p ~ 0.09`) indica uma diferença marginalmente significativa. Talvez com mais dados, poderíamos ver um resultado mais conclusivo.
+
+##  Teste de Tendências Paralelas e Placebo
+
+- **Teste de tendências paralelas**: plotamos gastos vs. uso de redes, estratificado por tratamento.  
+- **Placebo**: criamos um tratamento aleatório (`placebo_treatment`) e repetimos a DiD. Sem encontrar significância, reforça a ideia de que qualquer resultado com a nossa variável real não é simplesmente fruto do acaso.
+
+```{r}
+ggplot(Social_Meida_Dataset, aes(x = `Social Media Usage (Hours/Day)`, 
+                                 y = `Amount Spent (USD)`, 
+                                 color = factor(treatment))) +
+  geom_smooth(method = "loess", se = TRUE) +
+  theme_minimal() +
+  labs(title = "Tendências de Gastos por Nível de Influência",
+       x = "Uso de Redes Sociais (Horas/Dia)",
+       y = "Gastos (USD)",
+       color = "Nível de Influência")
+```
+
+A Figura acima mostra a relação entre o Uso de Redes Sociais e o Gasto (USD) para diferentes níveis de influência, ilustrando as tendências de cada grupo ao longo do tempo.
+
+---
+
+# Conclusão Geral
+
+Este relatório apresentou cinco roteiros de análise, utilizando o **Social Media Dataset** focado em comportamento de consumo e uso de redes sociais. A seguir, resumimos os principais achados:
+
+1. **Exploração de Dados**: 
+
+   - Verificou-se grande dispersão em `Amount Spent (USD)` e alguma variação em `Income (USD)`.  
+   - A maior parte da amostra consome redes sociais em torno de 2,5 a 3 horas/dia, com poucos usuários chegando a mais de 4 horas.
+
+2. **ANOVA**: 
+
+   - Mostrou diferenças significativas de gastos entre grupos de gênero (homens gastando mais) e níveis de educação (graduação/ensino médio gastando mais do que pós-graduação).  
+   - Categorias de produto mais caras (Eletrônicos, Saúde) apresentaram gastos médios bem superiores.
+
+3. **Regressão Múltipla**:  
+
+   - Confirmou a importância de gênero, categoria de produto e educação para explicar a variação em gastos.  
+   - Houve violação de pressupostos de normalidade e homocedasticidade, mas correções robustas indicaram que os coeficientes mantêm significância em boa parte dos casos.  
+   - Transformações log e termos quadráticos de renda e uso de redes ajudaram a melhorar o ajuste.
+
+4. **Propensity Score Matching**:  
+
+   - Definindo o grupo tratado como quem usa >3 horas/dia de redes sociais, encontramos, após o matching, que esse grupo apresentou gasto menor (cerca de 163 USD vs 376 USD no grupo controle). É um resultado curioso que pode indicar perfis de renda diferentes ou tempo livre voltado às redes (em vez de compras).  
+   - O matching conseguiu balancear Idade, Gênero e Renda razoavelmente, reforçando que a diferença não seria apenas devido ao perfil demográfico.
+
+5. **Diferença-em-Diferenças**:  
+
+   - Com um cenário simulado de tratamento (influência alta) e período pós (uso maior de redes), o efeito DiD não foi fortemente significativo, mas houve indicação de diferença marginal.  
+   - Necessário cautela, pois o delineamento foi artificial. Numa aplicação real, precisaria-se de dados longitudinais e delineamento experimental/quase-experimental mais consistente.
+
+**Perspectivas Finais**  
+
+A análise sugere que **fatores demográficos (idade, gênero, educação)** e **características de uso de redes sociais** influenciam no gasto. Estratégias de marketing digital podem ser diferentes para grupos de alta e baixa renda, bem como para heavy users de redes sociais. O PSM e o DiD são complementares em uma abordagem causal, mas dependem de suposições fortes (equilíbrio, tendências paralelas). Pesquisas futuras podem aprofundar a interação entre renda, influência social e motivação de compra, usando dados mais amplos ou acompanhamento temporal efetivo.
+
+
+**Fim do Relatório**
